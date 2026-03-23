@@ -1,0 +1,39 @@
+# Swift / Xcode
+.build/
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+*.pbxuser
+*.mode1v3
+*.mode2v3
+*.perspectivev3
+*.moved-aside
+
+# App bundle output
+dist/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Claude Code
+.claude/
+
+# Codex protocol
+.codex-protocol/
+
+# Scripts (local tooling)
+scripts/
+
+# Tests (if auto-generated)
+Tests/
