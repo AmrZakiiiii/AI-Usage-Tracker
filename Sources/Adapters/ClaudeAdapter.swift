@@ -74,6 +74,28 @@ final class ClaudeAdapter: ProviderAdapter {
     private let fileManager: FileManager
     private let isoFormatter = ISO8601DateFormatter()
 
+    // Cache API responses to avoid rate-limiting (429)
+    private static var cachedUsage: UsageResponse?
+    private static var cachedUsageDate: Date?
+    private static var cached2x: Claude2xResponse?
+    private static var cached2xDate: Date?
+    private static let usageCacheTTL: TimeInterval = 120   // 2 minutes
+    private static let twoXCacheTTL: TimeInterval = 60     // 1 minute
+
+    private func debugLog(_ msg: String) {
+        #if DEBUG
+        let line = "[\(Date())] \(msg)\n"
+        let logURL = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude/aitracker-debug.log")
+        if let handle = try? FileHandle(forWritingTo: logURL) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: logURL.path, contents: line.data(using: .utf8))
+        }
+        #endif
+    }
+
     init(
         rootURL: URL = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude"),
         fileManager: FileManager = .default
@@ -102,6 +124,7 @@ final class ClaudeAdapter: ProviderAdapter {
         // Load account info
         let backup = latestBackupURL().flatMap(loadBackup)
         let credentials = KeychainHelper.readClaudeCredentials()
+        debugLog("credentials: token=\(credentials?.accessToken.prefix(20) ?? "nil")..., sub=\(credentials?.subscriptionType ?? "nil"), expires=\(credentials?.expiresAt?.description ?? "nil")")
         let accountLabel = buildAccountLabel(backup: backup, credentials: credentials)
         let badge = credentials?.subscriptionType?.capitalized ?? prettifiedBillingType(backup?.oauthAccount?.billingType)
 
@@ -203,8 +226,17 @@ final class ClaudeAdapter: ProviderAdapter {
     // MARK: - API Fetching
 
     private func fetchUsage(accessToken: String?) async -> UsageResponse? {
+        // Return cached response if still fresh
+        if let cached = Self.cachedUsage,
+           let cacheDate = Self.cachedUsageDate,
+           Date().timeIntervalSince(cacheDate) < Self.usageCacheTTL {
+            debugLog("fetchUsage: returning cached (age=\(Int(Date().timeIntervalSince(cacheDate)))s)")
+            return cached
+        }
+
         guard let token = accessToken,
               let url = URL(string: "https://api.anthropic.com/api/oauth/usage") else {
+            debugLog("fetchUsage: no token or bad URL. token=\(accessToken != nil ? "present" : "nil")")
             return nil
         }
 
@@ -217,18 +249,44 @@ final class ClaudeAdapter: ProviderAdapter {
 
             let (data, response) = try await URLSession.shared.data(for: request)
 
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else {
-                return nil
+            guard let http = response as? HTTPURLResponse else {
+                debugLog("fetchUsage: response is not HTTP")
+                return Self.cachedUsage  // return stale cache on error
             }
 
-            return try JSONDecoder().decode(UsageResponse.self, from: data)
+            debugLog("fetchUsage: HTTP \(http.statusCode)")
+
+            if http.statusCode == 429 {
+                debugLog("fetchUsage: rate limited, returning stale cache")
+                return Self.cachedUsage
+            }
+
+            guard (200..<300).contains(http.statusCode) else {
+                return Self.cachedUsage
+            }
+
+            let decoded = try JSONDecoder().decode(UsageResponse.self, from: data)
+            debugLog("fetchUsage: decoded fiveHour=\(decoded.fiveHour?.utilization ?? -1), sevenDay=\(decoded.sevenDay?.utilization ?? -1)")
+
+            // Update cache
+            Self.cachedUsage = decoded
+            Self.cachedUsageDate = Date()
+
+            return decoded
         } catch {
-            return nil
+            debugLog("fetchUsage error: \(error)")
+            return Self.cachedUsage
         }
     }
 
     private func fetch2xStatus() async -> Claude2xResponse? {
+        // Return cached if fresh
+        if let cached = Self.cached2x,
+           let cacheDate = Self.cached2xDate,
+           Date().timeIntervalSince(cacheDate) < Self.twoXCacheTTL {
+            return cached
+        }
+
         guard let url = URL(string: "https://isclaude2x.com/json") else {
             return nil
         }
@@ -241,12 +299,15 @@ final class ClaudeAdapter: ProviderAdapter {
 
             guard let http = response as? HTTPURLResponse,
                   (200..<300).contains(http.statusCode) else {
-                return nil
+                return Self.cached2x
             }
 
-            return try JSONDecoder().decode(Claude2xResponse.self, from: data)
+            let decoded = try JSONDecoder().decode(Claude2xResponse.self, from: data)
+            Self.cached2x = decoded
+            Self.cached2xDate = Date()
+            return decoded
         } catch {
-            return nil
+            return Self.cached2x
         }
     }
 
