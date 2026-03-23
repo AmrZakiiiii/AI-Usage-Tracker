@@ -9,20 +9,89 @@ enum KeychainHelper {
         var rateLimitTier: String?
     }
 
-    /// Reads Claude Code OAuth credentials from the macOS Keychain.
+    // MARK: - Cache file path
+
+    private static var cacheURL: URL {
+        FileManager.default.homeDirectoryForCurrentUser
+            .appending(path: ".claude/ai-usage-tracker-token-cache.json")
+    }
+
+    // MARK: - Public API
+
+    /// Reads Claude Code OAuth credentials.
     ///
-    /// Uses the `security` CLI tool to avoid repeated Keychain authorization prompts.
-    /// The user must have previously authorized access (via "Always Allow" on the
-    /// security command or by adding the app to the Keychain ACL).
+    /// Strategy:
+    /// 1. Try the local token cache file (no prompt).
+    /// 2. If cache is missing or expired, read from Keychain (one-time prompt)
+    ///    and write to cache so future launches are silent.
     static func readClaudeCredentials() -> ClaudeCredentials? {
-        // Try the Security framework first (works if user clicked "Always Allow" for this app)
-        if let creds = readViaSecurityFramework() {
-            return creds
+        // 1. Try cached token first — completely silent
+        if let cached = readFromCache(), !isExpired(cached) {
+            return cached
         }
 
-        // Fallback: read from the .claude.json state file which may have cached tokens
-        return readFromClaudeStateFile()
+        // 2. Keychain read (may prompt once — user should click "Always Allow")
+        if let fresh = readViaSecurityFramework() {
+            writeToCache(fresh)
+            return fresh
+        }
+
+        // 3. Fallback: security CLI
+        if let cliBased = readViaSecurityCLIWithStateFile() {
+            writeToCache(cliBased)
+            return cliBased
+        }
+
+        return nil
     }
+
+    // MARK: - Local token cache
+
+    private static func readFromCache() -> ClaudeCredentials? {
+        guard let data = try? Data(contentsOf: cacheURL),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let accessToken = json["accessToken"] as? String else {
+            return nil
+        }
+
+        let refreshToken = json["refreshToken"] as? String
+        let expiresAtMs = json["expiresAt"] as? Double
+        let subscriptionType = json["subscriptionType"] as? String
+        let rateLimitTier = json["rateLimitTier"] as? String
+
+        return ClaudeCredentials(
+            accessToken: accessToken,
+            refreshToken: refreshToken,
+            expiresAt: expiresAtMs.map { Date(timeIntervalSince1970: $0 / 1000) },
+            subscriptionType: subscriptionType,
+            rateLimitTier: rateLimitTier
+        )
+    }
+
+    private static func isExpired(_ creds: ClaudeCredentials) -> Bool {
+        guard let expiresAt = creds.expiresAt else { return false }
+        // Consider expired 5 minutes early to allow refresh
+        return expiresAt.addingTimeInterval(-300) < Date()
+    }
+
+    private static func writeToCache(_ creds: ClaudeCredentials) {
+        var json: [String: Any] = ["accessToken": creds.accessToken]
+        if let r = creds.refreshToken { json["refreshToken"] = r }
+        if let e = creds.expiresAt { json["expiresAt"] = e.timeIntervalSince1970 * 1000 }
+        if let s = creds.subscriptionType { json["subscriptionType"] = s }
+        if let t = creds.rateLimitTier { json["rateLimitTier"] = t }
+
+        guard let data = try? JSONSerialization.data(withJSONObject: json, options: [.sortedKeys]) else {
+            return
+        }
+
+        // Set file permissions to owner-only (0600)
+        FileManager.default.createFile(atPath: cacheURL.path, contents: data, attributes: [
+            .posixPermissions: 0o600
+        ])
+    }
+
+    // MARK: - Keychain via Security framework
 
     private static func readViaSecurityFramework() -> ClaudeCredentials? {
         let query: [String: Any] = [
@@ -42,38 +111,30 @@ enum KeychainHelper {
         return parseCredentialJSON(data)
     }
 
-    private static func readFromClaudeStateFile() -> ClaudeCredentials? {
-        // Claude Code also stores a copy of the state in ~/.claude.json
-        // The tokens are in the Keychain, but the state file may have a cached copy
-        // after the CLI has been authorized
+    // MARK: - Keychain via security CLI + state file
+
+    private static func readViaSecurityCLIWithStateFile() -> ClaudeCredentials? {
         let homeDir = FileManager.default.homeDirectoryForCurrentUser
         let stateURL = homeDir.appending(path: ".claude.json")
 
-        guard let data = try? Data(contentsOf: stateURL),
-              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return nil
-        }
+        let billingType: String? = {
+            guard let data = try? Data(contentsOf: stateURL),
+                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let account = json["oauthAccount"] as? [String: Any] else {
+                return nil
+            }
+            return account["billingType"] as? String
+        }()
 
-        // Check for oauthAccount info (no tokens here, but subscription info)
-        guard let account = json["oauthAccount"] as? [String: Any] else {
-            return nil
-        }
+        guard let cliCreds = readViaSecurityCLI() else { return nil }
 
-        let billingType = account["billingType"] as? String
-
-        // Try to read cached credentials from the Keychain via the `security` CLI
-        // This works if the user has previously authorized via terminal
-        if let cliCreds = readViaSecurityCLI() {
-            return ClaudeCredentials(
-                accessToken: cliCreds.accessToken,
-                refreshToken: cliCreds.refreshToken,
-                expiresAt: cliCreds.expiresAt,
-                subscriptionType: cliCreds.subscriptionType ?? billingType,
-                rateLimitTier: cliCreds.rateLimitTier
-            )
-        }
-
-        return nil
+        return ClaudeCredentials(
+            accessToken: cliCreds.accessToken,
+            refreshToken: cliCreds.refreshToken,
+            expiresAt: cliCreds.expiresAt,
+            subscriptionType: cliCreds.subscriptionType ?? billingType,
+            rateLimitTier: cliCreds.rateLimitTier
+        )
     }
 
     private static func readViaSecurityCLI() -> ClaudeCredentials? {
@@ -82,7 +143,7 @@ enum KeychainHelper {
         process.arguments = [
             "find-generic-password",
             "-s", "Claude Code-credentials",
-            "-g",  // output password
+            "-g",
         ]
 
         let pipe = Pipe()
@@ -101,8 +162,6 @@ enum KeychainHelper {
             return nil
         }
 
-        // The password is output on stderr in the format: password: "..."
-        // or password: 0x<hex>
         let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
         let errorOutput = String(data: errorData, encoding: .utf8) ?? ""
 
@@ -113,9 +172,9 @@ enum KeychainHelper {
         return parseCredentialJSON(passwordData)
     }
 
+    // MARK: - Parsing helpers
+
     private static func extractPasswordData(from output: String) -> Data? {
-        // Format: password: "JSON string here"
-        // Or: password: 0xHEXHEXHEX
         for line in output.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
 
@@ -123,7 +182,6 @@ enum KeychainHelper {
                 let start = trimmed.index(trimmed.startIndex, offsetBy: 11)
                 let end = trimmed.index(trimmed.endIndex, offsetBy: -1)
                 let escaped = String(trimmed[start..<end])
-                // Unescape common escapes
                 let unescaped = escaped
                     .replacingOccurrences(of: "\\\"", with: "\"")
                     .replacingOccurrences(of: "\\\\", with: "\\")

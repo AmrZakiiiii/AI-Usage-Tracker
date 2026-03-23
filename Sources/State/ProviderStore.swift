@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import AppKit
 
 @MainActor
 final class ProviderStore: ObservableObject {
@@ -34,6 +35,7 @@ final class ProviderStore: ObservableObject {
     func start() {
         configureWatchers()
         configurePolling()
+        configureWakeNotification()
         refreshAll()
     }
 
@@ -42,6 +44,7 @@ final class ProviderStore: ObservableObject {
         refreshTask?.cancel()
         pollTimer?.invalidate()
         fileWatchService.stopWatching()
+        NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
     func refreshAll() {
@@ -126,5 +129,22 @@ final class ProviderStore: ObservableObject {
 
         pendingRefreshWorkItem = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: workItem)
+    }
+
+    // MARK: - Wake from sleep
+
+    private func configureWakeNotification() {
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didWakeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            // Delay slightly to let network come back up after wake
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                Task { @MainActor in
+                    self?.refreshAll()
+                }
+            }
+        }
     }
 }
