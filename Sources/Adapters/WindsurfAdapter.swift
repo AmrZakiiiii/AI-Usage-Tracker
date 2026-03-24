@@ -16,14 +16,30 @@ final class WindsurfAdapter: ProviderAdapter {
         var planInfo: PlanInfo?
         var planStart: String?
         var planEnd: String?
-        var availablePromptCredits: Int?
-        var availableFlowCredits: Int?
-        var availableFlexCredits: Int?
-        var dailyQuotaRemainingPercent: Int?
-        var weeklyQuotaRemainingPercent: Int?
-        var overageBalanceMicros: Int?
-        var dailyQuotaResetAtUnix: Int?
-        var weeklyQuotaResetAtUnix: Int?
+        var availablePromptCredits: FlexibleInt?
+        var availableFlowCredits: FlexibleInt?
+        var availableFlexCredits: FlexibleInt?
+        var dailyQuotaRemainingPercent: FlexibleInt?
+        var weeklyQuotaRemainingPercent: FlexibleInt?
+        var overageBalanceMicros: FlexibleInt?
+        var dailyQuotaResetAtUnix: FlexibleInt?
+        var weeklyQuotaResetAtUnix: FlexibleInt?
+    }
+
+    /// Handles JSON values that can be either int or string-encoded int
+    private struct FlexibleInt: Decodable {
+        let value: Int
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let intVal = try? container.decode(Int.self) {
+                value = intVal
+            } else if let strVal = try? container.decode(String.self), let parsed = Int(strVal) {
+                value = parsed
+            } else {
+                value = 0
+            }
+        }
     }
 
     private struct PlanInfo: Decodable {
@@ -87,9 +103,9 @@ final class WindsurfAdapter: ProviderAdapter {
             planPeriod = formatPlanPeriod(start: start, end: end)
 
             // Daily quota usage
-            if let remaining = ps.dailyQuotaRemainingPercent {
+            if let remaining = ps.dailyQuotaRemainingPercent?.value {
                 let usedPct = Double(max(0, min(100, 100 - remaining)))
-                let resetDate = ps.dailyQuotaResetAtUnix.map { Date(timeIntervalSince1970: Double($0)) }
+                let resetDate = ps.dailyQuotaResetAtUnix.map { Date(timeIntervalSince1970: Double($0.value)) }
 
                 windows.append(UsageWindow(
                     id: "daily_quota",
@@ -104,9 +120,9 @@ final class WindsurfAdapter: ProviderAdapter {
             }
 
             // Weekly quota usage
-            if let remaining = ps.weeklyQuotaRemainingPercent {
+            if let remaining = ps.weeklyQuotaRemainingPercent?.value {
                 let usedPct = Double(max(0, min(100, 100 - remaining)))
-                let resetDate = ps.weeklyQuotaResetAtUnix.map { Date(timeIntervalSince1970: Double($0)) }
+                let resetDate = ps.weeklyQuotaResetAtUnix.map { Date(timeIntervalSince1970: Double($0.value)) }
 
                 windows.append(UsageWindow(
                     id: "weekly_quota",
@@ -121,7 +137,7 @@ final class WindsurfAdapter: ProviderAdapter {
             }
 
             // Extra usage balance
-            if let micros = ps.overageBalanceMicros, micros > 0 {
+            if let micros = ps.overageBalanceMicros?.value, micros > 0 {
                 let balance = Double(micros) / 1_000_000.0
                 windows.append(UsageWindow(
                     id: "extra_usage",
@@ -152,6 +168,20 @@ final class WindsurfAdapter: ProviderAdapter {
 
     // MARK: - API call
 
+    private func debugLog(_ msg: String) {
+        #if DEBUG
+        let line = "[\(Date())] [Windsurf] \(msg)\n"
+        let logURL = FileManager.default.homeDirectoryForCurrentUser.appending(path: ".claude/aitracker-debug.log")
+        if let handle = try? FileHandle(forWritingTo: logURL) {
+            handle.seekToEndOfFile()
+            handle.write(line.data(using: .utf8)!)
+            handle.closeFile()
+        } else {
+            FileManager.default.createFile(atPath: logURL.path, contents: line.data(using: .utf8))
+        }
+        #endif
+    }
+
     private func fetchPlanStatus(apiKey: String?) async -> PlanStatus? {
         // Return cached if fresh
         if let cached = Self.cachedResponse,
@@ -162,8 +192,11 @@ final class WindsurfAdapter: ProviderAdapter {
 
         guard let apiKey, !apiKey.isEmpty,
               let url = URL(string: "https://server.codeium.com/exa.api_server_pb.ApiServerService/GetUserStatus") else {
+            debugLog("no apiKey or bad URL. apiKey=\(apiKey != nil ? "present(\(apiKey!.prefix(15))...)" : "nil")")
             return Self.cachedResponse
         }
+
+        debugLog("calling API with key=\(apiKey.prefix(15))...")
 
         do {
             var request = URLRequest(url: url)
@@ -184,19 +217,28 @@ final class WindsurfAdapter: ProviderAdapter {
 
             let (data, response) = try await URLSession.shared.data(for: request)
 
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode) else {
+            guard let http = response as? HTTPURLResponse else {
+                debugLog("response is not HTTP")
+                return Self.cachedResponse
+            }
+
+            debugLog("HTTP \(http.statusCode), body=\(String(data: data, encoding: .utf8)?.prefix(300) ?? "nil")")
+
+            guard (200..<300).contains(http.statusCode) else {
                 return Self.cachedResponse
             }
 
             let decoded = try JSONDecoder().decode(UserStatusResponse.self, from: data)
             if let ps = decoded.userStatus?.planStatus {
+                debugLog("decoded: daily=\(ps.dailyQuotaRemainingPercent?.value ?? -1), weekly=\(ps.weeklyQuotaRemainingPercent?.value ?? -1)")
                 Self.cachedResponse = ps
                 Self.cachedResponseDate = Date()
                 return ps
+            } else {
+                debugLog("decoded but no planStatus found")
             }
         } catch {
-            // Fall back to cached
+            debugLog("error: \(error)")
         }
 
         return Self.cachedResponse
