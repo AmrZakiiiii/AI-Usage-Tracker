@@ -234,10 +234,11 @@ final class ClaudeAdapter: ProviderAdapter {
     // MARK: - API Fetching
 
     private func fetchUsage(accessToken: String?) async -> UsageResponse? {
-        // Return cached response if still fresh
+        // Return cached response if still fresh AND no reset has passed
         if let cached = Self.cachedUsage,
            let cacheDate = Self.cachedUsageDate,
-           Date().timeIntervalSince(cacheDate) < Self.usageCacheTTL {
+           Date().timeIntervalSince(cacheDate) < Self.usageCacheTTL,
+           !Self.hasResetPassed(cached) {
             debugLog("fetchUsage: returning cached (age=\(Int(Date().timeIntervalSince(cacheDate)))s)")
             return cached
         }
@@ -263,6 +264,20 @@ final class ClaudeAdapter: ProviderAdapter {
         }
 
         return Self.cachedUsage
+    }
+
+    /// Returns true if any window's reset time is in the past (data is stale).
+    private static func hasResetPassed(_ usage: UsageResponse) -> Bool {
+        let now = Date()
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+
+        for window in [usage.fiveHour, usage.sevenDay, usage.sevenDaySonnet] {
+            guard let resetsAt = window?.resetsAt,
+                  let resetDate = formatter.date(from: resetsAt) else { continue }
+            if resetDate < now { return true }
+        }
+        return false
     }
 
     private enum APIResult {
