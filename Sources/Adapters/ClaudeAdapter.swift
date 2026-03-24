@@ -82,6 +82,14 @@ final class ClaudeAdapter: ProviderAdapter {
     private static let usageCacheTTL: TimeInterval = 120   // 2 minutes
     private static let twoXCacheTTL: TimeInterval = 60     // 1 minute
 
+    /// Invalidate all caches — called on wake from sleep or manual refresh
+    static func invalidateCaches() {
+        cachedUsage = nil
+        cachedUsageDate = nil
+        cached2x = nil
+        cached2xDate = nil
+    }
+
     private func debugLog(_ msg: String) {
         #if DEBUG
         let line = "[\(Date())] \(msg)\n"
@@ -234,10 +242,39 @@ final class ClaudeAdapter: ProviderAdapter {
             return cached
         }
 
-        guard let token = accessToken,
-              let url = URL(string: "https://api.anthropic.com/api/oauth/usage") else {
-            debugLog("fetchUsage: no token or bad URL. token=\(accessToken != nil ? "present" : "nil")")
-            return nil
+        // Try with the provided token first, then retry with refreshed token on 401
+        if let token = accessToken {
+            let result = await callUsageAPI(token: token)
+            if case .success(let usage) = result {
+                return usage
+            }
+            if case .unauthorized = result {
+                // Token was revoked (Claude Code refreshed it) — re-read from Keychain
+                debugLog("fetchUsage: 401 — force-refreshing credentials from Keychain")
+                if let fresh = KeychainHelper.forceRefreshCredentials() {
+                    debugLog("fetchUsage: got fresh token, retrying API")
+                    if case .success(let usage) = await callUsageAPI(token: fresh.accessToken) {
+                        return usage
+                    }
+                }
+            }
+        } else {
+            debugLog("fetchUsage: no token provided")
+        }
+
+        return Self.cachedUsage
+    }
+
+    private enum APIResult {
+        case success(UsageResponse)
+        case unauthorized
+        case rateLimited
+        case error
+    }
+
+    private func callUsageAPI(token: String) async -> APIResult {
+        guard let url = URL(string: "https://api.anthropic.com/api/oauth/usage") else {
+            return .error
         }
 
         do {
@@ -250,32 +287,36 @@ final class ClaudeAdapter: ProviderAdapter {
             let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let http = response as? HTTPURLResponse else {
-                debugLog("fetchUsage: response is not HTTP")
-                return Self.cachedUsage  // return stale cache on error
+                debugLog("callUsageAPI: response is not HTTP")
+                return .error
             }
 
-            debugLog("fetchUsage: HTTP \(http.statusCode)")
+            debugLog("callUsageAPI: HTTP \(http.statusCode)")
+
+            if http.statusCode == 401 {
+                return .unauthorized
+            }
 
             if http.statusCode == 429 {
-                debugLog("fetchUsage: rate limited, returning stale cache")
-                return Self.cachedUsage
+                debugLog("callUsageAPI: rate limited")
+                return .rateLimited
             }
 
             guard (200..<300).contains(http.statusCode) else {
-                return Self.cachedUsage
+                return .error
             }
 
             let decoded = try JSONDecoder().decode(UsageResponse.self, from: data)
-            debugLog("fetchUsage: decoded fiveHour=\(decoded.fiveHour?.utilization ?? -1), sevenDay=\(decoded.sevenDay?.utilization ?? -1)")
+            debugLog("callUsageAPI: decoded fiveHour=\(decoded.fiveHour?.utilization ?? -1), sevenDay=\(decoded.sevenDay?.utilization ?? -1)")
 
             // Update cache
             Self.cachedUsage = decoded
             Self.cachedUsageDate = Date()
 
-            return decoded
+            return .success(decoded)
         } catch {
-            debugLog("fetchUsage error: \(error)")
-            return Self.cachedUsage
+            debugLog("callUsageAPI error: \(error)")
+            return .error
         }
     }
 

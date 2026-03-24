@@ -21,27 +21,54 @@ enum KeychainHelper {
     /// Reads Claude Code OAuth credentials.
     ///
     /// Strategy:
-    /// 1. Try the local token cache file (no prompt).
-    /// 2. If cache is missing or expired, read from Keychain (one-time prompt)
-    ///    and write to cache so future launches are silent.
+    /// 1. Try the local token cache (no prompt, no Keychain).
+    /// 2. If expired/missing, re-read from Keychain via the `security` CLI
+    ///    (this binary is already trusted — no password prompt).
+    /// 3. Last resort: Security framework (may prompt once).
     static func readClaudeCredentials() -> ClaudeCredentials? {
-        // 1. Try cached token first — completely silent
+        // 1. Try cached token — completely silent
         if let cached = readFromCache(), !isExpired(cached) {
             return cached
         }
 
-        // 2. Keychain read (may prompt once — user should click "Always Allow")
+        // 2. Re-read from Keychain via security CLI (no prompt)
+        if let fresh = readViaSecurityCLIWithStateFile() {
+            writeToCache(fresh)
+            return fresh
+        }
+
+        // 3. Direct CLI without state file
+        if let fresh = readViaSecurityCLI() {
+            writeToCache(fresh)
+            return fresh
+        }
+
+        // 4. Last resort: Security framework (may prompt)
         if let fresh = readViaSecurityFramework() {
             writeToCache(fresh)
             return fresh
         }
 
-        // 3. Fallback: security CLI
-        if let cliBased = readViaSecurityCLIWithStateFile() {
-            writeToCache(cliBased)
-            return cliBased
-        }
+        return nil
+    }
 
+    /// Force re-read credentials from Keychain, bypassing cache.
+    /// Called when the API returns 401 (token revoked by Claude Code refresh).
+    static func forceRefreshCredentials() -> ClaudeCredentials? {
+        // Try CLI first (no prompt)
+        if let fresh = readViaSecurityCLIWithStateFile() {
+            writeToCache(fresh)
+            return fresh
+        }
+        if let fresh = readViaSecurityCLI() {
+            writeToCache(fresh)
+            return fresh
+        }
+        // Last resort
+        if let fresh = readViaSecurityFramework() {
+            writeToCache(fresh)
+            return fresh
+        }
         return nil
     }
 
@@ -74,7 +101,7 @@ enum KeychainHelper {
         return expiresAt.addingTimeInterval(-300) < Date()
     }
 
-    private static func writeToCache(_ creds: ClaudeCredentials) {
+    static func writeToCache(_ creds: ClaudeCredentials) {
         var json: [String: Any] = ["accessToken": creds.accessToken]
         if let r = creds.refreshToken { json["refreshToken"] = r }
         if let e = creds.expiresAt { json["expiresAt"] = e.timeIntervalSince1970 * 1000 }
@@ -85,7 +112,6 @@ enum KeychainHelper {
             return
         }
 
-        // Set file permissions to owner-only (0600)
         FileManager.default.createFile(atPath: cacheURL.path, contents: data, attributes: [
             .posixPermissions: 0o600
         ])

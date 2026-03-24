@@ -142,6 +142,8 @@ final class ProviderStore: ObservableObject {
             // Delay slightly to let network come back up after wake
             DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
                 Task { @MainActor in
+                    // Invalidate Claude caches so we fetch fresh data after sleep
+                    ClaudeAdapter.invalidateCaches()
                     self?.refreshAll()
                 }
             }
