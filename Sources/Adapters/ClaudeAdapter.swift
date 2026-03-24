@@ -249,6 +249,12 @@ final class ClaudeAdapter: ProviderAdapter {
             if case .success(let usage) = result {
                 return usage
             }
+            if case .rateLimited = result {
+                // Back off: bump cache date so we don't hammer on next poll
+                Self.cachedUsageDate = Date()
+                debugLog("fetchUsage: rate limited, backing off for \(Int(Self.usageCacheTTL))s")
+                return Self.cachedUsage
+            }
             if case .unauthorized = result {
                 // Token was revoked (Claude Code refreshed it) — re-read from Keychain
                 debugLog("fetchUsage: 401 — force-refreshing credentials from Keychain")
