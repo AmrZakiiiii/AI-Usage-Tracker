@@ -10,6 +10,10 @@
 [![Swift](https://img.shields.io/badge/Swift-6.0-orange?style=flat-square&logo=swift)](https://swift.org)
 [![License](https://img.shields.io/badge/License-MIT-blue?style=flat-square)](LICENSE)
 
+<br/>
+
+<img src="docs/demo.gif" width="380" alt="AI Usage Tracker demo" />
+
 </div>
 
 ---
@@ -17,10 +21,10 @@
 ## Screenshots
 
 <div align="center">
-<img src="docs/screenshot_claude.png" width="210" alt="Claude tab" />
-<img src="docs/screenshot_codex.png" width="210" alt="Codex tab" />
-<img src="docs/screenshot_windsurf.png" width="210" alt="Windsurf tab" />
-<img src="docs/screenshot_antigravity.png" width="210" alt="Antigravity tab" />
+<img src="docs/screenshot_claude.png" width="200" alt="Claude tab" />
+<img src="docs/screenshot_codex.png" width="200" alt="Codex tab" />
+<img src="docs/screenshot_windsurf.png" width="200" alt="Windsurf tab" />
+<img src="docs/screenshot_antigravity.png" width="200" alt="Antigravity tab" />
 </div>
 
 ---
