@@ -14,6 +14,17 @@
 
 ---
 
+## Screenshots
+
+<div align="center">
+<img src="docs/screenshot_claude.png" width="210" alt="Claude tab" />
+<img src="docs/screenshot_codex.png" width="210" alt="Codex tab" />
+<img src="docs/screenshot_windsurf.png" width="210" alt="Windsurf tab" />
+<img src="docs/screenshot_antigravity.png" width="210" alt="Antigravity tab" />
+</div>
+
+---
+
 ## Why
 
 Switching between Claude, Codex, Windsurf, and Antigravity just to check how much quota you have left is tedious. AI Usage Tracker lives in your menu bar and shows everything at a glance — usage percentages, reset countdowns, and peak-hour status — without opening a single browser tab.
@@ -125,6 +136,24 @@ This project has been audited for secrets and is safe to fork publicly:
 - ✅ `dist/`, `.build/`, `.claude/` are all excluded via `.gitignore`
 - ✅ Token cache is written at runtime only, with `0600` permissions (owner read/write)
 - ✅ All credentials are read from the local system at runtime — nothing is bundled
+
+---
+
+## Adding a GIF Demo (recommended before sharing)
+
+A short screen recording makes a huge difference for GitHub stars and social posts.
+
+**Record with QuickTime → File → New Screen Recording**, then convert:
+
+```bash
+# Requires ffmpeg: brew install ffmpeg
+ffmpeg -i recording.mov -vf "fps=10,scale=420:-1:flags=lanczos" -loop 0 docs/demo.gif
+```
+
+Then add to the README just below the Screenshots section:
+```markdown
+![Demo](docs/demo.gif)
+```
 
 ---
 
