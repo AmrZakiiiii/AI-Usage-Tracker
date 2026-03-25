@@ -47,11 +47,19 @@ final class ProviderStore: ObservableObject {
         NSWorkspace.shared.notificationCenter.removeObserver(self)
     }
 
+    /// Manual refresh — invalidates all caches and forces fresh API calls.
     func refreshAll() {
-        // Invalidate all API caches so we get truly fresh data
         for adapter in adapters.values {
             adapter.invalidateCache()
         }
+        refreshTask?.cancel()
+        refreshTask = Task { [weak self] in
+            await self?.performRefreshAll()
+        }
+    }
+
+    /// Auto-refresh — respects API caches and rate-limit backoffs.
+    private func autoRefresh() {
         refreshTask?.cancel()
         refreshTask = Task { [weak self] in
             await self?.performRefreshAll()
@@ -117,7 +125,7 @@ final class ProviderStore: ObservableObject {
 
         pollTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
-                self?.refreshAll()
+                self?.autoRefresh()
             }
         }
     }
@@ -127,7 +135,7 @@ final class ProviderStore: ObservableObject {
 
         let workItem = DispatchWorkItem { [weak self] in
             Task { @MainActor in
-                self?.refreshAll()
+                self?.autoRefresh()
             }
         }
 

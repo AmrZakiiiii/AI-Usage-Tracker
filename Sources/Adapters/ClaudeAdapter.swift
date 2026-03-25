@@ -79,7 +79,7 @@ final class ClaudeAdapter: ProviderAdapter {
     private static var cachedUsageDate: Date?
     private static var cached2x: Claude2xResponse?
     private static var cached2xDate: Date?
-    private static let usageCacheTTL: TimeInterval = 120   // 2 minutes
+    private static let usageCacheTTL: TimeInterval = 300   // 5 minutes — Claude API has aggressive rate limits
     private static let twoXCacheTTL: TimeInterval = 60     // 1 minute
 
     /// Invalidate all caches — called on wake from sleep or manual refresh
