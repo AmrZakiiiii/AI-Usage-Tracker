@@ -143,24 +143,6 @@ This project has been audited for secrets and is safe to fork publicly:
 
 ---
 
-## Adding a GIF Demo (recommended before sharing)
-
-A short screen recording makes a huge difference for GitHub stars and social posts.
-
-**Record with QuickTime → File → New Screen Recording**, then convert:
-
-```bash
-# Requires ffmpeg: brew install ffmpeg
-ffmpeg -i recording.mov -vf "fps=10,scale=420:-1:flags=lanczos" -loop 0 docs/demo.gif
-```
-
-Then add to the README just below the Screenshots section:
-```markdown
-![Demo](docs/demo.gif)
-```
-
----
-
 ## Contributing
 
 PRs welcome. To add a new provider, implement `ProviderAdapter` in `Sources/Adapters/` and register it in `ProviderStore`.
