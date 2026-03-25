@@ -90,6 +90,12 @@ final class ClaudeAdapter: ProviderAdapter {
         cached2xDate = nil
     }
 
+    func invalidateCache() {
+        Self.invalidateCaches()
+        // Also clear the token cache so we re-read fresh credentials
+        KeychainHelper.clearCache()
+    }
+
     private func debugLog(_ msg: String) {
         #if DEBUG
         let line = "[\(Date())] \(msg)\n"

@@ -48,6 +48,10 @@ final class ProviderStore: ObservableObject {
     }
 
     func refreshAll() {
+        // Invalidate all API caches so we get truly fresh data
+        for adapter in adapters.values {
+            adapter.invalidateCache()
+        }
         refreshTask?.cancel()
         refreshTask = Task { [weak self] in
             await self?.performRefreshAll()

@@ -60,6 +60,10 @@ final class WindsurfAdapter: ProviderAdapter {
         cachedResponseDate = nil
     }
 
+    func invalidateCache() {
+        Self.invalidateCaches()
+    }
+
     init(
         rootURL: URL = FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/Application Support/Windsurf"),
         fileManager: FileManager = .default

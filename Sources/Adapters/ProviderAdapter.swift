@@ -6,6 +6,7 @@ protocol ProviderAdapter {
     var observedURLs: [URL] { get }
 
     func loadSnapshot() async throws -> ProviderSnapshot
+    func invalidateCache()
 }
 
 extension FileManager {

@@ -32,6 +32,10 @@ final class AntigravityAdapter: ProviderAdapter {
         ]
     }
 
+    func invalidateCache() {
+        // Antigravity reads from local DB, no API cache to clear
+    }
+
     func loadSnapshot() async throws -> ProviderSnapshot {
         let databaseURL = rootURL.appending(path: "User/globalStorage/state.vscdb")
 

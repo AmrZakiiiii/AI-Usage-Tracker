@@ -18,6 +18,10 @@ final class CodexAdapter: ProviderAdapter {
         ]
     }
 
+    func invalidateCache() {
+        // Codex reads from files, no API cache to clear
+    }
+
     func loadSnapshot() async throws -> ProviderSnapshot {
         let existingFiles = observedURLs.filter { fileManager.fileExists(atPath: $0.path) }
 

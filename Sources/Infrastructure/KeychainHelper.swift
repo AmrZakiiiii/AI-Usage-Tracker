@@ -52,6 +52,11 @@ enum KeychainHelper {
         return nil
     }
 
+    /// Delete the local token cache file so next read re-fetches from Keychain.
+    static func clearCache() {
+        try? FileManager.default.removeItem(at: cacheURL)
+    }
+
     /// Force re-read credentials from Keychain, bypassing cache.
     /// Called when the API returns 401 (token revoked by Claude Code refresh).
     static func forceRefreshCredentials() -> ClaudeCredentials? {
