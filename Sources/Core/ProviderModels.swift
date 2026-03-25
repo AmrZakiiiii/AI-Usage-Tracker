@@ -225,18 +225,47 @@ struct ManualProviderOverride: Codable, Hashable {
     }
 }
 
+struct AlertSettings: Codable, Hashable {
+    var enabled: Bool
+    var thresholds: [Int]  // e.g. [80, 90]
+
+    static let `default` = AlertSettings(enabled: true, thresholds: [80, 90])
+}
+
 struct AppSettings: Codable, Hashable {
     var enabledProviders: [ProviderKind]
     var barDisplayMode: BarDisplayMode
     var refreshInterval: TimeInterval
     var manualOverrides: [String: ManualProviderOverride]
+    var alertSettings: AlertSettings
 
     static let `default` = AppSettings(
         enabledProviders: ProviderKind.allCases,
         barDisplayMode: .merged,
         refreshInterval: 60,
-        manualOverrides: [:]
+        manualOverrides: [:],
+        alertSettings: .default
     )
+
+    // Support decoding old settings that don't have alertSettings
+    init(enabledProviders: [ProviderKind], barDisplayMode: BarDisplayMode,
+         refreshInterval: TimeInterval, manualOverrides: [String: ManualProviderOverride],
+         alertSettings: AlertSettings = .default) {
+        self.enabledProviders = enabledProviders
+        self.barDisplayMode = barDisplayMode
+        self.refreshInterval = refreshInterval
+        self.manualOverrides = manualOverrides
+        self.alertSettings = alertSettings
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        enabledProviders = try container.decode([ProviderKind].self, forKey: .enabledProviders)
+        barDisplayMode = try container.decode(BarDisplayMode.self, forKey: .barDisplayMode)
+        refreshInterval = try container.decode(TimeInterval.self, forKey: .refreshInterval)
+        manualOverrides = try container.decode([String: ManualProviderOverride].self, forKey: .manualOverrides)
+        alertSettings = try container.decodeIfPresent(AlertSettings.self, forKey: .alertSettings) ?? .default
+    }
 
     func manualOverride(for provider: ProviderKind) -> ManualProviderOverride {
         manualOverrides[provider.rawValue] ?? .init()

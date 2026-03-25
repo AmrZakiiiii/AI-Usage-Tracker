@@ -103,6 +103,12 @@ final class ProviderStore: ObservableObject {
 
         snapshots = updated
         lastRefreshAt = Date()
+
+        // Check usage thresholds and send notifications
+        NotificationManager.shared.checkThresholds(
+            snapshots: updated,
+            settings: settingsStore.settings.alertSettings
+        )
     }
 
     private func handleSettingsChange() {

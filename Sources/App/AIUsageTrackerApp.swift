@@ -22,6 +22,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         menuBarController = MenuBarController(store: providerStore)
         providerStore.start()
+
+        // Request notification permission for usage alerts
+        NotificationManager.shared.requestPermission()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
