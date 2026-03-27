@@ -259,22 +259,32 @@ final class CodexAdapter: ProviderAdapter {
     }
 
     private func extractDeadlineText(from html: String) -> String? {
-        guard let deadlineRange = html.range(of: "Deadline") else {
-            return nil
+        let stripped = html.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+
+        let patterns = [
+            #"Deadline\s*[—-]\s*([A-Za-z]+ \d{1,2}, \d{4})"#,
+            #"deadline is\s+([A-Za-z]+ \d{1,2}, \d{4})"#,
+        ]
+
+        for pattern in patterns {
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+                continue
+            }
+
+            let range = NSRange(stripped.startIndex..<stripped.endIndex, in: stripped)
+            guard let match = regex.firstMatch(in: stripped, options: [], range: range),
+                  match.numberOfRanges > 1,
+                  let captureRange = Range(match.range(at: 1), in: stripped) else {
+                continue
+            }
+
+            let text = String(stripped[captureRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !text.isEmpty {
+                return text
+            }
         }
 
-        let suffix = html[deadlineRange.upperBound...]
-        guard let dashRange = suffix.range(of: "—") ?? suffix.range(of: "&mdash;") ?? suffix.range(of: "-") else {
-            return nil
-        }
-
-        // Take a reasonable chunk after the dash, strip HTML tags, then extract the date
-        let afterDash = String(suffix[dashRange.upperBound...].prefix(200))
-        let stripped = afterDash.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        // Take just the first line / sentence worth of text
-        let text = stripped.components(separatedBy: "\n").first?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        return text.isEmpty ? nil : text
+        return nil
     }
 
     private func relativeCountdownText(fromDeadlineText text: String) -> String? {
@@ -301,7 +311,7 @@ final class CodexAdapter: ProviderAdapter {
         let seconds = remaining % 60
 
         if days > 0 {
-            return "\(days)d \(hours)h \(minutes)m"
+            return "\(days)d \(hours)h \(minutes)m \(seconds)s"
         }
         if hours > 0 {
             return "\(hours)h \(minutes)m \(seconds)s"
