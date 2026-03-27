@@ -129,9 +129,9 @@ enum KeychainHelper {
                 case .failed:
                     break
                 }
-                // Don't cache an expired token — it just overwrites any good cache
-                debugLog("OAuth refresh failed, returning expired keychain token without caching")
-                return kc
+                // Don't return an expired token — caller would make a doomed API call
+                debugLog("OAuth refresh failed, all sources exhausted — returning nil")
+                return nil
             }
             writeToCache(kc)
             return kc
@@ -169,15 +169,16 @@ enum KeychainHelper {
                 break
             }
         }
-        // 2. Try CLI
-        if let fresh = readFromKeychainSources() {
+        // 2. Try CLI — only cache if not expired
+        if let fresh = readFromKeychainSources(), !isExpired(fresh) {
             writeToCache(fresh)
             return fresh
         }
-        if let fresh = readFromCredentialsFile() {
+        if let fresh = readFromCredentialsFile(), !isExpired(fresh) {
             writeToCache(fresh)
             return fresh
         }
+        debugLog("forceRefreshCredentials: no valid credentials found")
         return nil
     }
 
@@ -221,6 +222,7 @@ enum KeychainHelper {
 
         // Synchronous network call (we're already on a background path)
         let semaphore = DispatchSemaphore(value: 0)
+        let lock = NSLock()
         var result: RefreshResult = .failed
 
         let task = URLSession.shared.dataTask(with: request) { data, response, error in
@@ -244,7 +246,9 @@ enum KeychainHelper {
                let errorCode = json["error"] as? String,
                errorCode == "invalid_grant" {
                 debugLog("refreshViaOAuth: refresh token was rotated (invalid_grant)")
+                lock.lock()
                 result = .invalidGrant
+                lock.unlock()
                 return
             }
 
@@ -260,13 +264,7 @@ enum KeychainHelper {
 
             debugLog("refreshViaOAuth: success! new token \(newAccessToken.prefix(20))..., expires in \(Int(expiresIn))s")
 
-            result = ClaudeCredentials(
-                accessToken: newAccessToken,
-                refreshToken: newRefreshToken,
-                expiresAt: expiresAt,
-                subscriptionType: oldCreds.subscriptionType,
-                rateLimitTier: oldCreds.rateLimitTier
-            )
+            lock.lock()
             result = .success(ClaudeCredentials(
                 accessToken: newAccessToken,
                 refreshToken: newRefreshToken,
@@ -274,6 +272,7 @@ enum KeychainHelper {
                 subscriptionType: oldCreds.subscriptionType,
                 rateLimitTier: oldCreds.rateLimitTier
             ))
+            lock.unlock()
         }
         task.resume()
         semaphore.wait()
@@ -434,7 +433,8 @@ enum KeychainHelper {
             return keychainCreds
         }
 
-        return readFromCredentialsFile() ?? readFromKeychainSources()
+        debugLog("readFreshLiveCredentials: no fresh credentials found in any source")
+        return nil
     }
 
     private static func readBillingTypeFromStateFile() -> String? {

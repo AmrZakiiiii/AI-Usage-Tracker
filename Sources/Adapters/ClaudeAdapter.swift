@@ -92,8 +92,9 @@ final class ClaudeAdapter: ProviderAdapter {
 
     func invalidateCache() {
         Self.invalidateCaches()
-        // Also clear the token cache so we re-read fresh credentials
-        KeychainHelper.clearCache()
+        // Don't clear the token cache here — if the Keychain has an expired/burned
+        // refresh token, we'd lose a valid cached token with no way to recover it.
+        // The readClaudeCredentials() flow already checks expiry and refreshes as needed.
     }
 
     private func debugLog(_ msg: String) {
@@ -256,6 +257,15 @@ final class ClaudeAdapter: ProviderAdapter {
                 return usage
             }
             if case .rateLimited = result {
+                debugLog("fetchUsage: got 429, checking for fresher credentials before backing off")
+                if let fresh = KeychainHelper.forceRefreshCredentials(),
+                   fresh.accessToken != token {
+                    debugLog("fetchUsage: found a different token after 429, retrying API")
+                    if case .success(let usage) = await callUsageAPI(token: fresh.accessToken) {
+                        return usage
+                    }
+                }
+
                 // Back off: bump cache date so we don't hammer on next poll
                 Self.cachedUsageDate = Date()
                 debugLog("fetchUsage: rate limited, backing off for \(Int(Self.usageCacheTTL))s")
