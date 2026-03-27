@@ -37,3 +37,7 @@ scripts/
 
 # Tests (if auto-generated)
 Tests/
+
+# Raw screenshots (originals with personal info)
+Screenshot*.png
+Gemini_Generated_Image*.png
