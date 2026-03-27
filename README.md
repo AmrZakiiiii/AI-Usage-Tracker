@@ -21,10 +21,12 @@
 ## Screenshots
 
 <div align="center">
-<img src="docs/screenshot_claude.png" width="200" alt="Claude tab" />
-<img src="docs/screenshot_codex.png" width="200" alt="Codex tab" />
-<img src="docs/screenshot_windsurf.png" width="200" alt="Windsurf tab" />
-<img src="docs/screenshot_antigravity.png" width="200" alt="Antigravity tab" />
+<img src="docs/screenshot_codex.png" width="190" alt="Codex tab" />
+<img src="docs/screenshot_claude.png" width="190" alt="Claude tab" />
+<img src="docs/screenshot_antigravity.png" width="190" alt="Antigravity tab" />
+<img src="docs/screenshot_windsurf.png" width="190" alt="Windsurf tab" />
+<br/><br/>
+<img src="docs/screenshot_settings.png" width="190" alt="Settings" />
 </div>
 
 ---
